@@ -84,8 +84,8 @@
         return isNaN(d2) ? null : d2;
       }
       function analyzeData(rows) {
-        let totalAmount = 0,
-          totalPrepaymentCount = 0;
+        let totalAmount = 0;
+        let totalPrepaymentCount = 0;
         const uniqueDays = new Set();
         let newLinePrepaid = 0,
           newLinePostpaid = 0,
@@ -99,26 +99,52 @@
         const operatorTotals = {};
         const dailyTotals = {};
         rows.forEach((r) => {
-          const rawAmount = String(r["Transaction Amount"] || "").trim();
+          const rawAmountField =
+            r["Transaction Amount"] ??
+            r["Transaction Amount "] ??
+            r["TransactionAmount"] ??
+            "";
+          const rawAmount = String(rawAmountField || "").trim();
           const amount = parseFloat(rawAmount.replace(/[^0-9.-]/g, "")) || 0;
-          const type = (r["Transaction Type"] || "")
+          const typeRaw = (
+            r["Transaction Type"] ??
+            r["Transaction Type "] ??
+            ""
+          )
             .toString()
-            .trim()
-            .toLowerCase();
-          const payType = (r["Payment Type"] || "")
+            .trim();
+          const type = typeRaw.toLowerCase();
+          const payRaw = (r["Payment Type"] ?? r["Payment Type "] ?? "")
             .toString()
-            .trim()
-            .toLowerCase();
-          const serviceNumber = String(r["Service Number"] || "").trim();
-          const operator =
-            (r["Operator Name"] || "Unknown").toString().trim() || "Unknown";
-          const timeRaw = (r["Transaction Time"] || "").toString().trim();
+            .trim();
+          const payType = payRaw.toLowerCase();
+          const serviceNumber = String(
+            r["Service Number"] ?? r["Service Number "] ?? ""
+          ).trim();
+          const opRaw = (
+            r["Operator Name"] ??
+            r["Operator Name "] ??
+            r["Operator"] ??
+            ""
+          )
+            .toString()
+            .trim();
+          const operator = opRaw.length ? opRaw : "Unknown";
+          const timeRaw = (
+            r["Transaction Time"] ??
+            r["Transaction Time "] ??
+            ""
+          )
+            .toString()
+            .trim();
           const dateToken = timeRaw ? timeRaw.split(" ")[0] : "Unknown";
           if (dateToken && dateToken !== "Unknown") uniqueDays.add(dateToken);
           if (type === "prepayment" || type === "payment application") {
             totalAmount += amount;
           }
-          if (type === "prepayment") totalPrepaymentCount++;
+          if (type === "prepayment") {
+            totalPrepaymentCount++;
+          }
           let isNewLine = false;
           if (type === "payment application") {
             if (Math.abs(amount - 61.56) < 0.0001) {
@@ -142,8 +168,9 @@
             };
           }
           if (type === "prepayment") operatorTotals[operator].transactions++;
-          if (type === "prepayment" || type === "payment application")
+          if (type === "prepayment" || type === "payment application") {
             operatorTotals[operator].amount += amount;
+          }
           if (isNewLine) {
             operatorTotals[operator].newLinesAll++;
             if (payType === "prepaid") operatorTotals[operator].newPrepaid++;
@@ -153,40 +180,36 @@
             operatorTotals[operator].newADSL++;
           if (Math.abs(amount - 2.28) < 0.0001)
             operatorTotals[operator].newFixed++;
-          if (!dailyTotals[dateToken]) {
-            dailyTotals[dateToken] = {
+          const dayKey = dateToken || "Unknown";
+          if (!dailyTotals[dayKey]) {
+            dailyTotals[dayKey] = {
               transactions: 0,
               amount: 0,
-              newLinesAll: 0,
-              newPrepaid: 0,
-              newPostpaid: 0,
+              newLines: 0,
               postpaidBills: 0,
               adslBills: 0,
               mobileBills: 0,
               landlineBills: 0,
             };
           }
-          if (type === "prepayment" || type === "payment application")
-            dailyTotals[dateToken].amount += amount;
-          if (type === "prepayment") dailyTotals[dateToken].transactions++;
-          if (isNewLine) {
-            dailyTotals[dateToken].newLinesAll++;
-            if (payType === "prepaid") dailyTotals[dateToken].newPrepaid++;
-            if (payType === "postpaid") dailyTotals[dateToken].newPostpaid++;
+          if (type === "prepayment" || type === "payment application") {
+            dailyTotals[dayKey].amount += amount;
           }
+          if (type === "prepayment") dailyTotals[dayKey].transactions++;
+          if (isNewLine) dailyTotals[dayKey].newLines++;
           if (type === "prepayment") {
             if (payType === "postpaid") {
-              dailyTotals[dateToken].postpaidBills++;
+              dailyTotals[dayKey].postpaidBills++;
               totalPostpaidBills++;
             } else if (payType === "prepaid") {
               if (serviceNumber.includes("@tedata.net.eg")) {
-                dailyTotals[dateToken].adslBills++;
+                dailyTotals[dayKey].adslBills++;
                 totalAdslBills++;
               } else if (/^\d{10}$/.test(serviceNumber)) {
-                dailyTotals[dateToken].mobileBills++;
+                dailyTotals[dayKey].mobileBills++;
                 totalMobileBills++;
               } else if (/^\d{1,9}$/.test(serviceNumber)) {
-                dailyTotals[dateToken].landlineBills++;
+                dailyTotals[dayKey].landlineBills++;
                 totalLandlineBills++;
               }
             }
@@ -194,8 +217,7 @@
         });
         const daysCount = uniqueDays.size || 1;
         const avgPerDay = Math.round(totalPrepaymentCount / daysCount);
-        document.getElementById("summary").innerHTML = `
-        <h2>Summary</h2>
+        let sHTML = `<h2>Summary</h2>
         <table>
           <tr><th>Total Transactions</th><td>${totalPrepaymentCount}</td></tr>
           <tr><th>Total Amount</th><td>${formatMoney(totalAmount)}</td></tr>
@@ -210,18 +232,30 @@
           <tr><th>Mobile Bills</th><td>${totalMobileBills}</td></tr>
           <tr><th>Landline Bills</th><td>${totalLandlineBills}</td></tr>
         </table>`;
-        let opHTML = `<h2>Operator Totals</h2><table>
-        <tr><th>Operator</th><th>Transactions</th><th>Total Amount</th><th>New Lines (All)</th><th>New Lines (Prepaid)</th><th>New Lines (Postpaid)</th><th>New ADSL Subs</th><th>New Fixed Line Subs</th></tr>`;
+        document.getElementById("summary").innerHTML = sHTML;
+        let opHTML = `<h2>Operator Totals</h2>
+        <table>
+          <tr>
+            <th>Operator</th>
+            <th>Transactions</th>
+            <th>Total Amount</th>
+            <th>New Lines (All)</th>
+            <th>New Lines (Prepaid)</th>
+            <th>New Lines (Postpaid)</th>
+            <th>New ADSL Subs</th>
+            <th>New Fixed Line Subs</th>
+          </tr>`;
         Object.keys(operatorTotals).forEach((op) => {
           const d = operatorTotals[op];
           opHTML += `<tr>
-          <td>${op}</td><td>${d.transactions}</td><td>${formatMoney(
-            d.amount
-          )}</td>
-          <td>${d.newLinesAll}</td><td>${d.newPrepaid}</td><td>${
-            d.newPostpaid
-          }</td>
-          <td>${d.newADSL}</td><td>${d.newFixed}</td>
+          <td>${op}</td>
+          <td>${d.transactions}</td>
+          <td>${formatMoney(d.amount)}</td>
+          <td>${d.newLinesAll}</td>
+          <td>${d.newPrepaid}</td>
+          <td>${d.newPostpaid}</td>
+          <td>${d.newADSL}</td>
+          <td>${d.newFixed}</td>
         </tr>`;
         });
         opHTML += `</table>`;
@@ -238,20 +272,29 @@
           return a.localeCompare(b);
         }
         const dayKeys = Object.keys(dailyTotals).sort(daySort);
-        let dHTML = `<h2>Daily Totals</h2><table>
-        <tr><th>Date</th><th>Transactions</th><th>Total Amount</th><th>New Lines (All)</th><th>New Lines (Prepaid)</th><th>New Lines (Postpaid)</th><th>Postpaid Bills</th><th>ADSL Bills</th><th>Mobile Bills</th><th>Landline Bills</th></tr>`;
+        let dHTML = `<h2>Daily Totals</h2>
+        <table>
+          <tr>
+            <th>Date</th>
+            <th>Transactions</th>
+            <th>Total Amount</th>
+            <th>New Lines</th>
+            <th>Postpaid Bills</th>
+            <th>ADSL Bills</th>
+            <th>Mobile Bills</th>
+            <th>Landline Bills</th>
+          </tr>`;
         dayKeys.forEach((k) => {
           const dd = dailyTotals[k];
           dHTML += `<tr>
-          <td>${k}</td><td>${dd.transactions}</td><td>${formatMoney(
-            dd.amount
-          )}</td>
-          <td>${dd.newLinesAll}</td><td>${dd.newPrepaid}</td><td>${
-            dd.newPostpaid
-          }</td>
-          <td>${dd.postpaidBills}</td><td>${dd.adslBills}</td><td>${
-            dd.mobileBills
-          }</td><td>${dd.landlineBills}</td>
+          <td>${k}</td>
+          <td>${dd.transactions}</td>
+          <td>${formatMoney(dd.amount)}</td>
+          <td>${dd.newLines}</td>
+          <td>${dd.postpaidBills}</td>
+          <td>${dd.adslBills}</td>
+          <td>${dd.mobileBills}</td>
+          <td>${dd.landlineBills}</td>
         </tr>`;
         });
         dHTML += `</table>`;
