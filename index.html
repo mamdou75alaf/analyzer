@@ -230,7 +230,7 @@
           <tr><th>Postpaid Bills</th><td>${totalPostpaidBills}</td></tr>
           <tr><th>ADSL Bills</th><td>${totalAdslBills}</td></tr>
           <tr><th>Mobile E-Top</th><td>${totalMobileBills}</td></tr>
-          <tr><th>Landline Bills</th><td>${totalLandlineBills}</td></tr>
+          <tr><th>Fixed Line Bills</th><td>${totalLandlineBills}</td></tr>
         </table>`;
         document.getElementById("summary").innerHTML = sHTML;
         let opHTML = `<h2>Operator Totals</h2>
@@ -282,7 +282,7 @@
             <th>Postpaid Bills</th>
             <th>ADSL Bills</th>
             <th>Mobile E-Top</th>
-            <th>Landline Bills</th>
+            <th>Fixed Line Bills</th>
           </tr>`;
         dayKeys.forEach((k) => {
           const dd = dailyTotals[k];
