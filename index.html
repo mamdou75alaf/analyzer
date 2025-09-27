@@ -8,53 +8,119 @@
     <style>
       body {
         font-family: Arial, sans-serif;
-        max-width: max-content;
-        margin: 20px;
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: #5b2c92;
       }
-      table {
-        border-collapse: collapse;
+      .container {
+        background: white;
+        padding: 50px 80px;
+        border-radius: 15px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+        text-align: center;
+        max-width: 500px;
         width: 100%;
-        margin: 10px 0;
       }
-      th,
-      td {
-        border: 1px solid #ccc;
-        padding: 8px;
-        text-align: left;
-      }
-      th {
-        background: #f5f5f5;
-      }
-      h1,
-      h2 {
+      h1 {
+        margin: 30px 0;
         color: #333;
-        margin-top: 20px;
+      }
+      p {
+        margin: 10px 0 -10px 0;
+        font-size: small;
+      }
+      img {
+        width: 160px;
       }
       input[type="file"] {
-        margin-bottom: 12px;
+        padding: 12px 20px;
+        border-radius: 8px;
+        border: 1px solid #5b2c92;
+        cursor: pointer;
+        display: inline-block; /* make it shrink to fit content */
+        text-align: center; /* center the label/text inside */
+        color: #000;
+        font-weight: bold;
+        transition: background-color 0.3s;
+      }
+      #message {
+        margin-top: 20px;
+        font-weight: bold;
+      }
+      #spinner {
+        display: none;
+        margin: 20px auto 0 auto;
+        border: 5px solid #f3f3f3;
+        border-top: 5px solid #5b2c92;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
       }
     </style>
   </head>
   <body>
-    <h1>Transaction Analysis Tool</h1>
-    <input type="file" id="fileInput" accept=".xlsx,.xls" />
-    <div id="summary"></div>
-    <div id="operatorSummary"></div>
-    <div id="dailySummary"></div>
+    <div class="container">
+      <img id="logo" src="icon512.png" alt="We Logo" />
+      <h1>Transaction Analysis Tool</h1>
+      <input type="file" id="fileInput" accept=".xlsx,.xls" />
+      <div id="spinner"></div>
+      <div id="message"></div>
+      <br />
+      <p>MUE Team - By Mamdouh Khalaf</p>
+    </div>
     <script>
+      const expectedHeaders = [
+        "Account Code",
+        "Customer Code",
+        "Service Number",
+        "Group Code",
+        "Payment Type",
+        "Transaction Type",
+        "Transaction Amount",
+        "Transaction Time",
+        "Operator Name",
+        "Organization Name",
+        "Operation",
+      ];
       document
         .getElementById("fileInput")
         .addEventListener("change", handleFile, false);
       function handleFile(e) {
         const file = e.target.files[0];
         if (!file) return;
+        const spinner = document.getElementById("spinner");
+        const message = document.getElementById("message");
+        spinner.style.display = "block";
+        message.textContent = "Processing...";
         const reader = new FileReader();
         reader.onload = function (event) {
           const data = new Uint8Array(event.target.result);
           const workbook = XLSX.read(data, { type: "array" });
           const sheet = workbook.Sheets[workbook.SheetNames[0]];
-          const json = XLSX.utils.sheet_to_json(sheet);
-          const cleaned = cleanHeaders(json);
+          const jsonRaw = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          const fileHeaders = jsonRaw[0].map((h) => h.toString().trim());
+          const headersMatch = expectedHeaders.every(
+            (h, i) => h === fileHeaders[i]
+          );
+          if (!headersMatch) {
+            spinner.style.display = "none";
+            message.textContent =
+              "❌ Error: Invalid Excel format. Please use the correct template.";
+            return;
+          }
+          const cleaned = cleanHeaders(XLSX.utils.sheet_to_json(sheet));
           analyzeData(cleaned);
         };
         reader.readAsArrayBuffer(file);
@@ -67,27 +133,26 @@
         });
       }
       function formatMoney(val) {
-        const n = Math.round(Number(val) || 0);
-        return n.toLocaleString("en-US") + " LE";
+        return Math.round(Number(val) || 0).toLocaleString("en-US");
       }
       function parseDMY(s) {
         if (!s) return null;
         const str = String(s).trim().split(" ")[0];
         const m = str.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})$/);
-        if (m) {
-          const day = parseInt(m[1], 10);
-          const mon = parseInt(m[2], 10) - 1;
-          const yr = parseInt(m[3], 10);
-          const d = new Date(yr, mon, day);
-          if (!isNaN(d)) return d;
-        }
+        if (m)
+          return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
         const d2 = new Date(str);
         return isNaN(d2) ? null : d2;
       }
       function analyzeData(rows) {
-        let totalAmount = 0;
-        let totalPrepaymentCount = 0;
-        const uniqueDays = new Set();
+        const spinner = document.getElementById("spinner");
+        const message = document.getElementById("message");
+        const orgName = rows.length
+          ? (rows[0]["Organization Name"] || "").toString().trim()
+          : "";
+        let totalAmount = 0,
+          totalPrepaymentCount = 0,
+          uniqueDays = new Set();
         let newLinePrepaid = 0,
           newLinePostpaid = 0,
           newADSL = 0,
@@ -97,55 +162,46 @@
           totalAdslBills = 0,
           totalMobileBills = 0,
           totalLandlineBills = 0;
-        const operatorTotals = {};
-        const dailyTotals = {};
+        const operatorTotals = {},
+          dailyTotals = {},
+          operatorDaily = {};
         rows.forEach((r) => {
-          const rawAmountField =
+          const rawAmount = String(
             r["Transaction Amount"] ??
-            r["Transaction Amount "] ??
-            r["TransactionAmount"] ??
-            "";
-          const rawAmount = String(rawAmountField || "").trim();
+              r["Transaction Amount "] ??
+              r["TransactionAmount"] ??
+              ""
+          ).trim();
           const amount = parseFloat(rawAmount.replace(/[^0-9.-]/g, "")) || 0;
-          const typeRaw = (
-            r["Transaction Type"] ??
-            r["Transaction Type "] ??
-            ""
-          )
+          const type = (r["Transaction Type"] ?? r["Transaction Type "] ?? "")
             .toString()
-            .trim();
-          const type = typeRaw.toLowerCase();
-          const payRaw = (r["Payment Type"] ?? r["Payment Type "] ?? "")
+            .trim()
+            .toLowerCase();
+          const payType = (r["Payment Type"] ?? r["Payment Type "] ?? "")
             .toString()
-            .trim();
-          const payType = payRaw.toLowerCase();
+            .trim()
+            .toLowerCase();
           const serviceNumber = String(
             r["Service Number"] ?? r["Service Number "] ?? ""
           ).trim();
-          const opRaw = (
-            r["Operator Name"] ??
-            r["Operator Name "] ??
-            r["Operator"] ??
-            ""
-          )
-            .toString()
-            .trim();
-          const operator = opRaw.length ? opRaw : "Unknown";
-          const timeRaw = (
-            r["Transaction Time"] ??
-            r["Transaction Time "] ??
-            ""
-          )
-            .toString()
-            .trim();
-          const dateToken = timeRaw ? timeRaw.split(" ")[0] : "Unknown";
-          if (dateToken && dateToken !== "Unknown") uniqueDays.add(dateToken);
-          if (type === "prepayment" || type === "payment application") {
+          const operator =
+            (
+              r["Operator Name"] ??
+              r["Operator Name "] ??
+              r["Operator"] ??
+              "Unknown"
+            )
+              .toString()
+              .trim() || "Unknown";
+          const dateToken =
+            (r["Transaction Time"] ?? r["Transaction Time "] ?? "")
+              .toString()
+              .trim()
+              .split(" ")[0] || "Unknown";
+          if (dateToken !== "Unknown") uniqueDays.add(dateToken);
+          if (type === "prepayment" || type === "payment application")
             totalAmount += amount;
-          }
-          if (type === "prepayment") {
-            totalPrepaymentCount++;
-          }
+          if (type === "prepayment") totalPrepaymentCount++;
           let isNewLine = false;
           if (type === "payment application") {
             if (Math.abs(amount - 61.56) < 0.0001) {
@@ -157,7 +213,7 @@
             if (Math.abs(amount - 2.9) < 0.0001) newADSL++;
             if (Math.abs(amount - 2.28) < 0.0001) newFixedLine++;
           }
-          if (!operatorTotals[operator]) {
+          if (!operatorTotals[operator])
             operatorTotals[operator] = {
               transactions: 0,
               amount: 0,
@@ -167,11 +223,9 @@
               newADSL: 0,
               newFixed: 0,
             };
-          }
           if (type === "prepayment") operatorTotals[operator].transactions++;
-          if (type === "prepayment" || type === "payment application") {
+          if (type === "prepayment" || type === "payment application")
             operatorTotals[operator].amount += amount;
-          }
           if (isNewLine) {
             operatorTotals[operator].newLinesAll++;
             if (payType === "prepaid") operatorTotals[operator].newPrepaid++;
@@ -181,125 +235,229 @@
             operatorTotals[operator].newADSL++;
           if (Math.abs(amount - 2.28) < 0.0001)
             operatorTotals[operator].newFixed++;
-          const dayKey = dateToken || "Unknown";
-          if (!dailyTotals[dayKey]) {
-            dailyTotals[dayKey] = {
+          if (!dailyTotals[dateToken])
+            dailyTotals[dateToken] = {
               transactions: 0,
               amount: 0,
-              newLines: 0,
+              newLinesAll: 0,
+              newPrepaid: 0,
+              newPostpaid: 0,
+              newADSL: 0,
+              newFixed: 0,
               postpaidBills: 0,
               adslBills: 0,
               mobileBills: 0,
               landlineBills: 0,
             };
+          if (type === "prepayment" || type === "payment application")
+            dailyTotals[dateToken].amount += amount;
+          if (type === "prepayment") dailyTotals[dateToken].transactions++;
+          if (isNewLine) {
+            dailyTotals[dateToken].newLinesAll++;
+            if (payType === "prepaid") dailyTotals[dateToken].newPrepaid++;
+            if (payType === "postpaid") dailyTotals[dateToken].newPostpaid++;
           }
-          if (type === "prepayment" || type === "payment application") {
-            dailyTotals[dayKey].amount += amount;
-          }
-          if (type === "prepayment") dailyTotals[dayKey].transactions++;
-          if (isNewLine) dailyTotals[dayKey].newLines++;
+          if (Math.abs(amount - 2.9) < 0.0001) dailyTotals[dateToken].newADSL++;
+          if (Math.abs(amount - 2.28) < 0.0001)
+            dailyTotals[dateToken].newFixed++;
           if (type === "prepayment") {
             if (payType === "postpaid") {
-              dailyTotals[dayKey].postpaidBills++;
+              dailyTotals[dateToken].postpaidBills++;
               totalPostpaidBills++;
             } else if (payType === "prepaid") {
               if (serviceNumber.includes("@tedata.net.eg")) {
-                dailyTotals[dayKey].adslBills++;
+                dailyTotals[dateToken].adslBills++;
                 totalAdslBills++;
               } else if (/^\d{10}$/.test(serviceNumber)) {
-                dailyTotals[dayKey].mobileBills++;
+                dailyTotals[dateToken].mobileBills++;
                 totalMobileBills++;
               } else if (/^\d{1,9}$/.test(serviceNumber)) {
-                dailyTotals[dayKey].landlineBills++;
+                dailyTotals[dateToken].landlineBills++;
                 totalLandlineBills++;
               }
             }
           }
+          if (!operatorDaily[operator]) operatorDaily[operator] = {};
+          if (!operatorDaily[operator][dateToken])
+            operatorDaily[operator][dateToken] = {
+              transactions: 0,
+              amount: 0,
+              newLinesAll: 0,
+              newPrepaid: 0,
+              newPostpaid: 0,
+              newADSL: 0,
+              newFixed: 0,
+              postpaidBills: 0,
+              adslBills: 0,
+              mobileBills: 0,
+              landlineBills: 0,
+            };
+          const bucket = operatorDaily[operator][dateToken];
+          if (type === "prepayment" || type === "payment application")
+            bucket.amount += amount;
+          if (type === "prepayment") bucket.transactions++;
+          if (isNewLine) {
+            bucket.newLinesAll++;
+            if (payType === "prepaid") bucket.newPrepaid++;
+            if (payType === "postpaid") bucket.newPostpaid++;
+          }
+          if (Math.abs(amount - 2.9) < 0.0001) bucket.newADSL++;
+          if (Math.abs(amount - 2.28) < 0.0001) bucket.newFixed++;
+          if (type === "prepayment") {
+            if (payType === "postpaid") bucket.postpaidBills++;
+            else if (payType === "prepaid") {
+              if (serviceNumber.includes("@tedata.net.eg")) bucket.adslBills++;
+              else if (/^\d{10}$/.test(serviceNumber)) bucket.mobileBills++;
+              else if (/^\d{1,9}$/.test(serviceNumber)) bucket.landlineBills++;
+            }
+          }
         });
-        const daysCount = uniqueDays.size || 1;
-        const avgPerDay = Math.round(totalPrepaymentCount / daysCount);
-        let sHTML = `<h2>Summary</h2>
-        <table>
-          <tr><th>Total Transactions</th><td>${totalPrepaymentCount}</td></tr>
-          <tr><th>Total Amount</th><td>${formatMoney(totalAmount)}</td></tr>
-          <tr><th>Average Transactions per Day</th><td>${avgPerDay}</td></tr>
-          <tr><th>New Lines (All)</th><td>${totalNewLinesAll}</td></tr>
-          <tr><th>New Lines (Prepaid)</th><td>${newLinePrepaid}</td></tr>
-          <tr><th>New Lines (Postpaid)</th><td>${newLinePostpaid}</td></tr>
-          <tr><th>New ADSL Subscribers</th><td>${newADSL}</td></tr>
-          <tr><th>New Fixed Line Subscribers</th><td>${newFixedLine}</td></tr>
-          <tr><th>Postpaid Bills</th><td>${totalPostpaidBills}</td></tr>
-          <tr><th>ADSL Bills</th><td>${totalAdslBills}</td></tr>
-          <tr><th>Mobile E-Top</th><td>${totalMobileBills}</td></tr>
-          <tr><th>Fixed Line Bills</th><td>${totalLandlineBills}</td></tr>
-        </table>`;
-        document.getElementById("summary").innerHTML = sHTML;
-        let opHTML = `<h2>Operator Totals</h2>
-        <table>
-          <tr>
-            <th>Operator</th>
-            <th>Transactions</th>
-            <th>Total Amount</th>
-            <th>New Lines (All)</th>
-            <th>New Lines (Prepaid)</th>
-            <th>New Lines (Postpaid)</th>
-            <th>New ADSL Subs</th>
-            <th>New Fixed Line Subs</th>
-          </tr>`;
+        const wb = XLSX.utils.book_new();
+        const summaryData = [
+          ["Total Transactions", totalPrepaymentCount],
+          ["Total Amount", Math.round(totalAmount)],
+          [
+            "Average Transactions per Day",
+            Math.round(totalPrepaymentCount / Math.max(uniqueDays.size, 1)),
+          ],
+          ["Mobile E-Top", totalMobileBills],
+          ["Postpaid Bills", totalPostpaidBills],
+          ["ADSL Bills", totalAdslBills],
+          ["Fixed Line Bills", totalLandlineBills],
+          ["New Lines (All)", totalNewLinesAll],
+          ["New Lines (Prepaid)", newLinePrepaid],
+          ["New Lines (Postpaid)", newLinePostpaid],
+          ["New ADSL Subscribers", newADSL],
+          ["New Fixed Line Subscribers", newFixedLine],
+        ];
+        XLSX.utils.book_append_sheet(
+          wb,
+          XLSX.utils.aoa_to_sheet(summaryData),
+          "Store Summary"
+        );
+        const dailyData = [];
+        Object.keys(dailyTotals)
+          .sort()
+          .forEach((k) => {
+            const d = dailyTotals[k];
+            dailyData.push([
+              k,
+              d.transactions,
+              d.amount,
+              d.mobileBills,
+              d.postpaidBills,
+              d.adslBills,
+              d.landlineBills,
+              d.newLinesAll,
+              d.newPrepaid,
+              d.newPostpaid,
+              d.newADSL,
+              d.newFixed,
+            ]);
+          });
+        XLSX.utils.book_append_sheet(
+          wb,
+          XLSX.utils.aoa_to_sheet([
+            [
+              "Date",
+              "Transactions",
+              "Total Amount",
+              "Mobile E-Top",
+              "Postpaid Bills",
+              "ADSL Bills",
+              "Fixed Line Bills",
+              "New Lines (All)",
+              "New Lines (Prepaid)",
+              "New Lines (Postpaid)",
+              "New ADSL Subs",
+              "New Fixed Line Subs",
+            ],
+            ...dailyData,
+          ]),
+          "Store Per Day"
+        );
+        const opData = [];
         Object.keys(operatorTotals).forEach((op) => {
           const d = operatorTotals[op];
-          opHTML += `<tr>
-          <td>${op}</td>
-          <td>${d.transactions}</td>
-          <td>${formatMoney(d.amount)}</td>
-          <td>${d.newLinesAll}</td>
-          <td>${d.newPrepaid}</td>
-          <td>${d.newPostpaid}</td>
-          <td>${d.newADSL}</td>
-          <td>${d.newFixed}</td>
-        </tr>`;
+          opData.push([
+            op,
+            d.transactions,
+            d.amount,
+            d.newLinesAll,
+            d.newPrepaid,
+            d.newPostpaid,
+            d.newADSL,
+            d.newFixed,
+          ]);
         });
-        opHTML += `</table>`;
-        document.getElementById("operatorSummary").innerHTML = opHTML;
-        function daySort(a, b) {
-          if (a === "Unknown" && b === "Unknown") return 0;
-          if (a === "Unknown") return 1;
-          if (b === "Unknown") return -1;
-          const da = parseDMY(a),
-            db = parseDMY(b);
-          if (da && db) return da - db;
-          if (da && !db) return -1;
-          if (!da && db) return 1;
-          return a.localeCompare(b);
-        }
-        const dayKeys = Object.keys(dailyTotals).sort(daySort);
-        let dHTML = `<h2>Daily Totals</h2>
-        <table>
-          <tr>
-            <th>Date</th>
-            <th>Transactions</th>
-            <th>Total Amount</th>
-            <th>New Lines</th>
-            <th>Postpaid Bills</th>
-            <th>ADSL Bills</th>
-            <th>Mobile E-Top</th>
-            <th>Fixed Line Bills</th>
-          </tr>`;
-        dayKeys.forEach((k) => {
-          const dd = dailyTotals[k];
-          dHTML += `<tr>
-          <td>${k}</td>
-          <td>${dd.transactions}</td>
-          <td>${formatMoney(dd.amount)}</td>
-          <td>${dd.newLines}</td>
-          <td>${dd.postpaidBills}</td>
-          <td>${dd.adslBills}</td>
-          <td>${dd.mobileBills}</td>
-          <td>${dd.landlineBills}</td>
-        </tr>`;
+        XLSX.utils.book_append_sheet(
+          wb,
+          XLSX.utils.aoa_to_sheet([
+            [
+              "Operator",
+              "Transactions",
+              "Total Amount",
+              "New Lines (All)",
+              "New Lines (Prepaid)",
+              "New Lines (Postpaid)",
+              "New ADSL Subs",
+              "New Fixed Line Subs",
+            ],
+            ...opData,
+          ]),
+          "Agents Summary"
+        );
+        Object.keys(operatorDaily).forEach((op) => {
+          const opDailyData = [];
+          Object.keys(operatorDaily[op])
+            .sort()
+            .forEach((k) => {
+              const d = operatorDaily[op][k];
+              opDailyData.push([
+                k,
+                d.transactions,
+                d.amount,
+                d.mobileBills,
+                d.postpaidBills,
+                d.adslBills,
+                d.landlineBills,
+                d.newLinesAll,
+                d.newPrepaid,
+                d.newPostpaid,
+                d.newADSL,
+                d.newFixed,
+              ]);
+            });
+          XLSX.utils.book_append_sheet(
+            wb,
+            XLSX.utils.aoa_to_sheet([
+              [
+                "Date",
+                "Transactions",
+                "Total Amount",
+                "Mobile E-Top",
+                "Postpaid Bills",
+                "ADSL Bills",
+                "Fixed Line Bills",
+                "New Lines (All)",
+                "New Lines (Prepaid)",
+                "New Lines (Postpaid)",
+                "New ADSL Subs",
+                "New Fixed Line Subs",
+              ],
+              ...opDailyData,
+            ]),
+            op.substring(0, 31)
+          );
         });
-        dHTML += `</table>`;
-        document.getElementById("dailySummary").innerHTML = dHTML;
+        const safeFileName = (orgName || "Transaction_Report").replace(
+          /[/\\?%*:|"<>]/g,
+          "_"
+        );
+        XLSX.writeFile(wb, safeFileName + ".xlsx");
+        spinner.style.display = "none";
+        message.textContent =
+          "✅ File exported successfully: " + safeFileName + ".xlsx";
       }
     </script>
   </body>
