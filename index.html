@@ -315,7 +315,7 @@
         const wb = XLSX.utils.book_new();
         const summaryData = [
           ["Total Transactions", totalPrepaymentCount],
-          ["Total Amount", Math.round(totalAmount)],
+          ["Total Cash", Math.round(totalAmount)],
           [
             "Average Transactions per Day",
             Math.round(totalPrepaymentCount / Math.max(uniqueDays.size, 1)),
@@ -361,7 +361,7 @@
             [
               "Date",
               "Transactions",
-              "Total Amount",
+              "Cash Amount",
               "Mobile E-Top",
               "Postpaid Bills",
               "ADSL Bills",
@@ -396,7 +396,7 @@
             [
               "Operator",
               "Transactions",
-              "Total Amount",
+              "Cash Amount",
               "New Lines (All)",
               "New Lines (Prepaid)",
               "New Lines (Postpaid)",
@@ -434,7 +434,7 @@
               [
                 "Date",
                 "Transactions",
-                "Total Amount",
+                "Cash Amount",
                 "Mobile E-Top",
                 "Postpaid Bills",
                 "ADSL Bills",
